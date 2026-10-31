@@ -163,6 +163,24 @@ def main():
     for v in VARIANTS:
         print(f"  {v:15s}", "  ".join(f"s{s}: {runs[v][s]['accuracy']:.1%} / {runs[v][s]['tag_rate']:.1%}" for s in SEEDS))
 
+    qwen_dir = Path("results/qwen_prompt")
+    if all((qwen_dir / f"{n}.json").exists() for n in ["baseline"] + [f"{v}_s{s}" for v in VARIANTS for s in SEEDS]):
+        q_base = test_metrics(qwen_dir / "baseline.json")
+        summary["qwen_prompt"] = {"baseline": q_base}
+        print("\nAccuracy under both evaluation prompts (gain over the untrained model in brackets):")
+        print("| Model | Our prompt | Qwen's prompt |")
+        print("|---|---|---|")
+        print(f"| Baseline | {baseline['accuracy']:.1%} | {q_base['accuracy']:.1%} |")
+        for v in VARIANTS:
+            q = [test_metrics(qwen_dir / f"{v}_s{s}.json") for s in SEEDS]
+            summary["qwen_prompt"][v] = {}
+            for c in cols:
+                mean, sd = mean_sd([r[c] for r in q])
+                summary["qwen_prompt"][v][c] = {"mean": mean, "sd": sd, "seeds": [r[c] for r in q]}
+            ours, theirs = summary[v]["accuracy"], summary["qwen_prompt"][v]["accuracy"]
+            print(f"| `{v}` | {ours['mean']:.1%} ± {ours['sd']:.1%} ({(ours['mean'] - baseline['accuracy']) * 100:+.1f}) "
+                  f"| {theirs['mean']:.1%} ± {theirs['sd']:.1%} ({(theirs['mean'] - q_base['accuracy']) * 100:+.1f}) |")
+
     print(f"\nPartial-credit reward earned by wrong answers (training, {SMOOTH}-step windows):")
     for s in SEEDS:
         gap = [r["partial"] - r["correct"] for r in logs["partial"][s]]

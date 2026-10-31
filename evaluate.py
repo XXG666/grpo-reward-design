@@ -4,6 +4,7 @@ Usage:
     python evaluate.py --limit 100 --out results/smoke.json      # quick check
     python evaluate.py --out results/baseline.json               # full test set (1319 problems)
     python evaluate.py --adapter runs/correct_s0 --out results/correct_s0.json
+    python evaluate.py --prompt qwen --out results/qwen_prompt/baseline.json   # Qwen's standard prompt
 """
 import argparse
 import json
@@ -14,7 +15,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from data import load_gsm8k
-from rewards import extract_answer, has_answer_tag, is_correct
+from rewards import extract_answer, extract_boxed_answer, has_answer_tag
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
@@ -26,6 +27,8 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="only evaluate the first N problems")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--prompt", choices=["ours", "qwen"], default="ours",
+                        help="ours: training prompt, <answer> tags; qwen: Qwen's standard math prompt, \\boxed{}")
     parser.add_argument("--out", default="results/baseline.json")
     args = parser.parse_args()
 
@@ -36,7 +39,8 @@ def main():
         model = PeftModel.from_pretrained(model, args.adapter).merge_and_unload()
     model.eval()
 
-    ds = load_gsm8k("test", args.limit)
+    ds = load_gsm8k("test", args.limit, args.prompt)
+    extract = extract_boxed_answer if args.prompt == "qwen" else extract_answer
     records = []
     start = time.time()
     for i in range(0, len(ds), args.batch_size):
@@ -51,11 +55,12 @@ def main():
         for prompt, gold, ids in zip(batch["prompt"], batch["answer"], generated):
             text = tok.decode(ids, skip_special_tokens=True)
             n_tokens = int((ids != tok.pad_token_id).sum())
+            pred = extract(text)
             records.append({
                 "question": prompt[-1]["content"],
                 "gold": gold,
-                "pred": extract_answer(text),
-                "correct": is_correct(text, gold),
+                "pred": pred,
+                "correct": pred is not None and abs(pred - float(gold)) < 1e-6,
                 "has_tag": has_answer_tag(text),
                 "tokens": n_tokens,
                 "truncated": n_tokens >= args.max_new_tokens,
@@ -68,6 +73,7 @@ def main():
     summary = {
         "model": args.model,
         "adapter": args.adapter,
+        "prompt": args.prompt,
         "n": n,
         "accuracy": sum(r["correct"] for r in records) / n,
         "format_rate": sum(r["has_tag"] for r in records) / n,

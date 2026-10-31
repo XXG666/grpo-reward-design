@@ -7,6 +7,7 @@ completion. When several functions are listed for a variant, TRL sums them.
 import re
 
 ANSWER_TAG = re.compile(r"<answer>(.*?)</answer>", re.DOTALL)
+BOXED = re.compile(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}")
 NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
@@ -21,18 +22,27 @@ def has_answer_tag(text: str) -> bool:
     return ANSWER_TAG.search(text) is not None
 
 
-def extract_answer(text: str) -> float | None:
-    """Last number inside the last <answer> tag, or the last number in the text if there is no tag."""
-    tags = ANSWER_TAG.findall(text)
+def last_number(segment: str) -> float | None:
     # Drop dollar signs (plain or LaTeX-escaped) so "-\$10" parses as -10.
-    segment = (tags[-1] if tags else text).replace("\\$", "").replace("$", "")
-    numbers = NUMBER.findall(segment)
+    numbers = NUMBER.findall(segment.replace("\\$", "").replace("$", ""))
     if not numbers:
         return None
     try:
         return float(numbers[-1].replace(",", ""))
     except ValueError:
         return None
+
+
+def extract_answer(text: str) -> float | None:
+    """Last number inside the last <answer> tag, or the last number in the text if there is no tag."""
+    tags = ANSWER_TAG.findall(text)
+    return last_number(tags[-1] if tags else text)
+
+
+def extract_boxed_answer(text: str) -> float | None:
+    """Last number inside the last \\boxed{}, or the last number in the text if there is none."""
+    boxes = BOXED.findall(text)
+    return last_number(boxes[-1] if boxes else text)
 
 
 def is_correct(text: str, gold: str) -> bool:

@@ -43,6 +43,9 @@ python evaluate.py --adapter runs/correct_s0 --out results/correct_s0.json
 # (saved every 50 steps), so it is safe to stop with Ctrl+C and re-run later.
 python run_all.py
 
+# Re-test with Qwen's standard math prompt (answer in \boxed{}) instead of ours
+python evaluate.py --prompt qwen --adapter runs/correct_s0 --out results/qwen_prompt/correct_s0.json
+
 # Comparison table, reward-hacking checks and figures
 python analyze.py
 ```
@@ -87,9 +90,39 @@ reward pays for.
 - **Answers got shorter.** Mean length fell from 291 to 218–228 tokens (22–25%), and
   truncated answers fell from 3.5% to about 1%.
 
-Numbers here are comparable with each other, not with published scores: Qwen reports
-49.6% for Qwen2.5-0.5B-Instruct under its own evaluation setup, which uses a different
-prompt and answer extraction.
+### Robustness to the evaluation prompt
+
+All models were trained with the prompt in `data.py`, so part of the gain could come from
+learning that prompt rather than better math. To check, every model was re-tested with
+Qwen's standard math prompt (no custom system prompt; "Please reason step by step, and put
+your final answer within \boxed{}"), reading the answer from the last `\boxed{}`
+(`--prompt qwen`, results in `results/qwen_prompt/`). The gain over the untrained model
+is in brackets.
+
+| Model | Our prompt | Qwen's prompt |
+|---|---|---|
+| Qwen2.5-0.5B-Instruct (baseline) | 43.3% | 45.9% |
+| + GRPO, `correct` | 50.3% ± 0.6% (+7.0) | 49.7% ± 0.8% (+3.8) |
+| + GRPO, `correct_format` | 49.4% ± 0.7% (+6.1) | 49.1% ± 0.4% (+3.2) |
+| + GRPO, `partial` | 50.5% ± 0.9% (+7.2) | 50.8% ± 0.6% (+5.0) |
+
+- **More than half the gain carries over to a prompt the models never saw in training.**
+  Every trained model beats the untrained one under Qwen's prompt, by 3–5 points
+  instead of 6–7.
+- **Training did not lock the models into the trained format.** Under Qwen's prompt the
+  trained models put their answer in `\boxed{}` 98–99% of the time and never used
+  `<answer>` tags, even the `correct_format` models that use tags 99% of the time under
+  our prompt.
+- **Shorter answers carry over too.** Mean length fell from 304 to 261–275 tokens, and
+  truncated answers from 5.3% to 1.1–2.4%.
+- **The ranking of the rewards is the same under both prompts** (`partial` ≥ `correct` ≥
+  `correct_format`), but the differences are 1–2 points with 3 seeds, so this is a hint,
+  not a result.
+
+Even with Qwen's prompt, the untrained model scores 45.9%, below the 49.6% Qwen reports
+for Qwen2.5-0.5B-Instruct. The report does not give its full evaluation setup (for
+example the generation length limit), so the numbers here are comparable with each
+other, not with published scores.
 
 ## License
 
